@@ -1,9 +1,24 @@
+import json
 import os
 from flask import Flask, jsonify, request
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import redis
 
 app = Flask(__name__)
+
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+CACHE_KEY = "tasks:list"
+CACHE_TTL = 30
+
+_redis = None
+
+
+def get_redis():
+    global _redis
+    if _redis is None:
+        _redis = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
+    return _redis
 
 
 def get_db():
@@ -33,19 +48,43 @@ def init_db():
     conn.close()
 
 
+# Инициализация БД при запуске (gunicorn не выполняет if __name__ == "__main__")
+init_db()
+
+
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok"})
 
 
+def _invalidate_cache():
+    try:
+        get_redis().delete(CACHE_KEY)
+    except redis.RedisError:
+        pass
+
+
 @app.route("/api/tasks", methods=["GET"])
 def get_tasks():
+    try:
+        cached = get_redis().get(CACHE_KEY)
+        if cached:
+            return jsonify(json.loads(cached))
+    except redis.RedisError:
+        pass
+
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("SELECT * FROM tasks ORDER BY created_at DESC")
-    tasks = cur.fetchall()
+    tasks = [dict(row) for row in cur.fetchall()]
     cur.close()
     conn.close()
+
+    try:
+        get_redis().setex(CACHE_KEY, CACHE_TTL, json.dumps(tasks, default=str))
+    except redis.RedisError:
+        pass
+
     return jsonify(tasks)
 
 
@@ -62,6 +101,7 @@ def create_task():
     conn.commit()
     cur.close()
     conn.close()
+    _invalidate_cache()
     return jsonify(task), 201
 
 
@@ -79,6 +119,7 @@ def toggle_task(task_id):
     conn.close()
     if task is None:
         return jsonify({"error": "not found"}), 404
+    _invalidate_cache()
     return jsonify(task)
 
 
@@ -90,6 +131,7 @@ def delete_task(task_id):
     conn.commit()
     cur.close()
     conn.close()
+    _invalidate_cache()
     return "", 204
 
 

@@ -1,17 +1,24 @@
 services:
+  redis:
+    image: redis:7-alpine
+
   postgres:
     image: postgres:16-alpine
     volumes:
       - postgres-data:/var/lib/postgresql/data
     env_file: .env
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
 
   backend:
     build: ./backend
     env_file: .env
     environment:
       - DB_HOST=postgres
+      - REDIS_HOST=redis
     depends_on:
       - postgres
+      - redis
     restart: unless-stopped
 
   frontend:
