@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    env_file: .env
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      - DB_HOST=postgres
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
