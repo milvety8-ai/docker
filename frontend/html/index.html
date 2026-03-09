@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Список задач</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 500px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.5rem; }
+    form { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+    input[type="text"] { flex: 1; padding: 0.5rem; }
+    button { padding: 0.5rem 1rem; cursor: pointer; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid #eee; }
+    li.done .task-title { text-decoration: line-through; color: #888; }
+    .task-title { flex: 1; }
+    .delete-btn { color: #c00; background: none; border: none; padding: 0.25rem; cursor: pointer; }
+    .error { color: #c00; margin-top: 0.5rem; }
+    .loading { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Список задач</h1>
+
+  <form id="add-form">
+    <input type="text" id="task-input" placeholder="Новая задача" required>
+    <button type="submit">Добавить</button>
+  </form>
+
+  <p id="message" class="error"></p>
+
+  <ul id="task-list"></ul>
+
+  <script>
+    const API = '/api';
+    const list = document.getElementById('task-list');
+    const form = document.getElementById('add-form');
+    const input = document.getElementById('task-input');
+    const messageEl = document.getElementById('message');
+
+    function showMessage(text, isError = true) {
+      messageEl.textContent = text;
+      messageEl.className = isError ? 'error' : '';
+    }
+
+    function renderTask(task) {
+      const li = document.createElement('li');
+      if (task.done) li.classList.add('done');
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = task.done;
+      checkbox.addEventListener('change', () => toggleTask(task.id));
+
+      const title = document.createElement('span');
+      title.className = 'task-title';
+      title.textContent = task.title;
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'delete-btn';
+      deleteBtn.textContent = '✕';
+      deleteBtn.addEventListener('click', () => deleteTask(task.id));
+
+      li.appendChild(checkbox);
+      li.appendChild(title);
+      li.appendChild(deleteBtn);
+      li.dataset.id = task.id;
+      return li;
+    }
+
+    async function loadTasks() {
+      list.innerHTML = '<li class="loading">Загрузка...</li>';
+      try {
+        const res = await fetch(`${API}/tasks`);
+        if (!res.ok) throw new Error('Ошибка загрузки');
+        const tasks = await res.json();
+        list.innerHTML = '';
+        tasks.forEach(task => list.appendChild(renderTask(task)));
+      } catch (e) {
+        list.innerHTML = '';
+        showMessage('Не удалось загрузить задачи: ' + e.message);
+      }
+    }
+
+    async function addTask(e) {
+      e.preventDefault();
+      const title = input.value.trim();
+      if (!title) return;
+      showMessage('');
+      try {
+        const res = await fetch(`${API}/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title })
+        });
+        if (!res.ok) throw new Error('Ошибка добавления');
+        const task = await res.json();
+        list.insertBefore(renderTask(task), list.firstChild);
+        input.value = '';
+      } catch (e) {
+        showMessage('Не удалось добавить: ' + e.message);
+      }
+    }
+
+    async function toggleTask(id) {
+      try {
+        const res = await fetch(`${API}/tasks/${id}`, { method: 'PATCH' });
+        if (!res.ok) throw new Error('Ошибка');
+        const task = await res.json();
+        const li = list.querySelector(`[data-id="${id}"]`);
+        if (li) {
+          li.classList.toggle('done', task.done);
+          li.querySelector('input').checked = task.done;
+        }
+      } catch (e) {
+        showMessage('Ошибка обновления');
+        loadTasks();
+      }
+    }
+
+    async function deleteTask(id) {
+      try {
+        const res = await fetch(`${API}/tasks/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Ошибка');
+        const li = list.querySelector(`[data-id="${id}"]`);
+        if (li) li.remove();
+      } catch (e) {
+        showMessage('Ошибка удаления');
+        loadTasks();
+      }
+    }
+
+    form.addEventListener('submit', addTask);
+    loadTasks();
+  </script>
+</body>
+</html>
